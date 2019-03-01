@@ -74,3 +74,20 @@ def splitTimeSeriesData(df, split_date, msg =True):
         df.shape, df_train.shape, df_test.shape))
     return df_train, df_test
 
+
+
+## Key Generator
+def createKey(DF, Key_ColToUse):
+    '''
+    Use to combine columns to generate a key which is seperated by '|'
+    '''
+    df = DF.copy()
+    for col_ind in range(len(Key_ColToUse)):
+        I1 = df.index.tolist()
+        I2 = df[Key_ColToUse[col_ind]].astype('str').tolist()
+        if col_ind == 0:
+            df.index = I2
+        else:
+            df.index = [ "|".join([I1[ind], I2[ind]]) for ind in range(len(I1)) ] #, I3[ind]
+    return df.index 
+
