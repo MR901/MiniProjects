@@ -4,6 +4,16 @@ from sklearn.metrics import roc_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+import ast
+import math
+from sklearn import metrics
+from sklearn.cluster import KMeans, MiniBatchKMeans, AffinityPropagation, MeanShift, Birch
+from sklearn.cluster import SpectralClustering, AgglomerativeClustering, DBSCAN
+from sklearn.decomposition import PCA, IncrementalPCA, KernelPCA, LatentDirichletAllocation, FastICA, TruncatedSVD
+import matplotlib.colors as colors
+from mpl_toolkits.mplot3d import axes3d
+import scipy.cluster.hierarchy as sch
+
 from sklearn.metrics import classification_report, confusion_matrix,  roc_curve
 from sklearn.metrics import matthews_corrcoef,accuracy_score
 import matplotlib.patches as patches
@@ -188,6 +198,458 @@ class ScalingDF:
 
 
 
+
+# -------------------------------------------------<< Unsupervised Learning >>------------------------------------------ #
+
+def PlotExplainedVar(Mod):
+    fig = plt.figure(figsize=(15, 8))
+    sns.set(style="whitegrid")
+    # sns.set(style="darkgrid")
+    # plt.subplot(211)
+    yAxis = [ 'PCA_var_' + str(i) for i in range(len(Mod.explained_variance_)) ]
+    xAxis = [ round(Mod.explained_variance_ratio_[i] / Mod.explained_variance_ratio_.sum() * 100, 2) for i in range(len(Mod.explained_variance_ratio_)) ]
+    sns.barplot(xAxis, yAxis)
+    ## Alternatively
+    # plt.barh(yAxis, width=xAxis, align='center')
+    # plt.gca().invert_yaxis()
+    plt.grid(True, color='black', alpha=0.2)
+    plt.title('Features VS % Variance Explained', fontsize=15)
+    plt.xlabel('% Variance Explaind')
+    plt.ylabel('Features')
+    plt.show()
+
+    fig = plt.figure(figsize=(15, 4))
+    sns.set(style="whitegrid")
+    # plt.subplot(212)
+    Freq = [ Mod.explained_variance_ratio_[i] / Mod.explained_variance_ratio_.sum() * 100 for i in range(len(Mod.explained_variance_ratio_)) ] 
+    CumulFreq = [ sum(Freq[0:i+1]) for i in range(len(Freq)) ] 
+    # sns.barplot(CumulFreq, yAxis)
+    ## Alternatively
+    plt.bar(yAxis, height=CumulFreq, width=1, align='center')
+    # plt.barh(yAxis, width=CumulFreq, align='center')
+    # plt.gca().invert_yaxis()
+    plt.grid(True, color='black', alpha=0.2)
+    plt.title('Features VS % Cumulative Explained Variance', fontsize=15)
+    plt.xlabel('% Variance Explaind')
+    plt.ylabel('Features')
+    plt.xticks(rotation=90)
+
+    plt.show()
+
+def DetNoOfClusters(DF, AlgoToSelect=None):
+    # Using the elbow method to find the optimal number of clusters 
+    try:
+        data = DF.sample(n=10000)
+    except ValueError:
+        data = DF.sample(frac=1)
+
+    FeatureToIgnore = []
+    #[ i for i in config_clust['DataProcessing_General']['FeatureToIgnore'].split("'") if len(i) > 2 ]
+    wcss = []
+    for clust_cnt in range(1, 17):
+        kmeans = KMeans(n_clusters=clust_cnt, init='k-means++', random_state=42)
+        kmeans.fit(data[[ i for i in data.columns if i not in FeatureToIgnore ]])
+        wcss.append(kmeans.inertia_)
+
+    width = 20
+    height = 7
+    fig = plt.figure(figsize=(width, height))
+    plt.subplot(121)
+    plt.plot(range(1, 17), wcss, color='k', linewidth=2, linestyle='-', marker='o', markerfacecolor='black', markersize=10)
+    plt.title('The Elbow Method computed over ' + AlgoToSelect)
+    plt.xlabel('Number of clusters')
+    plt.ylabel('WCSS')
+    #     plt.xticks(NoOfFeature)
+    plt.xticks(np.arange(start=0, stop=17, step=1))
+    plt.yticks(np.arange(start=0, stop=501, step=100))
+    #     plt.axis([0,1,0,100])
+    plt.axhline(0, color='black')
+    plt.axvline(0, color='black')
+    #     plt.margins(1,1)
+    plt.grid(True, color='black', alpha=0.2)
+    
+    # Using the dendrogram to find the optimal number of clusters
+    plt.subplot(122)
+    sch.dendrogram(sch.linkage(data[[ i for i in data.columns if i not in FeatureToIgnore ]].iloc[0:1000, :], method='ward'), orientation='right')
+    # Methods:'single' 'complete' 'average' 'weighted'  'centroid' 'median' 'ward'
+    plt.title('Dendrogram computed over ' + AlgoToSelect)
+    plt.xlabel('Euclidean distances')
+    plt.ylabel('Observations')
+    plt.show()
+    # if config_clust['aim']['PaceMode'] == 'Off':
+    #fig.savefig(config_clust['input']['FigSavingLoc_dir'] + time.strftime('%y_%m_%d_%Hhr_%Mmin(%Z)', time.gmtime()) + '__OptimunClusters_' + AlgoToSelect + '.png')
+# DetNoOfClusters(xtrain_DimTransf, AlgoToSelect='PCA transformed Feature')
+
+
+def DimenRed_Visual(df_x, criticalClass_ser):
+    # Plotting Static 3D Plot using the first three variables only 
+    plotData = df_x.copy()
+    # FigSav_dir = config_clust['input']['FigSavingLoc_dir']
+    FeatureToIgnore = []
+    #[ i for i in config_clust['DataProcessing_General']['FeatureToIgnore'].split("'") if len(i) > 2 ]
+    IndextoStart = len(FeatureToIgnore)
+    
+    fig = plt.figure(figsize=(20, 10))
+    xs_1 = plotData.loc[(criticalClass_ser > 0, plotData.columns[IndextoStart + 0])].values
+    ys_1 = plotData.loc[(criticalClass_ser > 0, plotData.columns[IndextoStart + 1])].values
+    zs_1 = plotData.loc[(criticalClass_ser > 0, plotData.columns[IndextoStart + 2])].values
+    
+    xs_0 = plotData.loc[(criticalClass_ser == 0, plotData.columns[IndextoStart + 0])].values
+    ys_0 = plotData.loc[(criticalClass_ser == 0, plotData.columns[IndextoStart + 1])].values
+    zs_0 = plotData.loc[(criticalClass_ser == 0, plotData.columns[IndextoStart + 2])].values
+    
+    plt.subplot(243)
+    plt.scatter(ys_1, zs_1, color='red', marker='o', alpha=0.8) # 0.7
+    plt.scatter(ys_0, zs_0, color='black', marker='o', alpha=0.05) # 0.2
+    plt.grid(True, color='black', alpha=0.2)
+    plt.title('YZ plane', fontsize=15)
+    plt.xlabel('Y')
+    plt.ylabel('Z')
+    
+    plt.subplot(244)
+    plt.scatter(xs_1, zs_1, color='red', marker='o', alpha=0.8)
+    plt.scatter(xs_0, zs_0, color='black', marker='o', alpha=0.05)
+    plt.grid(True, color='black', alpha=0.2)
+    plt.title('XZ plane', fontsize=15)
+    plt.xlabel('X')
+    plt.ylabel('Z')
+    
+    plt.subplot(248)
+    plt.scatter(xs_1, ys_1, color='red', marker='o', alpha=0.8)
+    plt.scatter(xs_0, ys_0, color='black', marker='o', alpha=0.05)
+    plt.grid(True, color='black', alpha=0.2)
+    plt.title('XY plane', fontsize=15)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    
+    ax = fig.add_subplot(121, projection='3d')
+    ax.scatter(xs_1, ys_1, zs_1, zdir='z', c='red', marker='o', alpha=0.8, label='1')
+    ax.scatter(xs_0, ys_0, zs_0, zdir='z', c='black', marker='o', alpha=0.05, label='0')
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+    plt.title('top 3 feature Visualization', fontsize=15)
+    plt.legend(loc='lower right', frameon=True)
+    plt.grid(True, color='black', alpha=0.2)
+    
+    plt.subplot(247)
+    ## Converting isBotHits To Category
+    # Results in Warning >> df[df['NoOfCluster'] > 2]['NoOfCluster'] = '1'
+    # Results in Warning >> criticalClass_ser.loc[criticalClass_ser > 0] = '1'
+    criticalClass_ser = ['1' if i > 0 else '0' for i in criticalClass_ser]
+    #.astype('str')
+    sns.countplot(x=criticalClass_ser, alpha=0.5)
+    plt.title('Observations Count in each Clust')
+    plt.tight_layout()
+    plt.show()
+    
+    # if config_clust['aim']['PaceMode'] == 'Off':
+    # fig.savefig(FigSav_dir + time.strftime('%y_%m_%d_%Hhr_%Mmin(%Z)', time.gmtime()) + '__DataDimTransformedUsing_' + AlgoToSelect + '.png')
+# DimenRed_Visual(xtrain_DimTransf, ytrain.reset_index(drop=True))
+
+def DimensionTransf(AlgoToUse, AlgoConfig, DF):
+    df = DF.copy()
+    DimensionTransformModels_dict = {
+        'PCA': {'Model': PCA(), 'DataTypeBoundation': 'Nil', 'fit': True, 'fit_transform': True, 'transform': True }, 
+        'IncPCA': {'Model': IncrementalPCA(), 'DataTypeBoundation': 'Nil', 'fit': True, 'fit_transform': True, 'transform': True }, 
+        'KerPCA': {'Model': KernelPCA(), 'DataTypeBoundation': 'Nil', 'fit': True, 'fit_transform': True, 'transform': True }, 
+        'LDA': {'Model': LatentDirichletAllocation(), 'DataTypeBoundation': 'Normalized', 'fit': True, 'fit_transform': True, 'transform': True }, 
+        'ICA': {'Model': FastICA(), 'DataTypeBoundation': 'Normalized', 'fit': True, 'fit_transform': True, 'transform': True },  
+        'TrunSVD': {'Model': TruncatedSVD(), 'DataTypeBoundation': 'Nil', 'fit': True, 'fit_transform': True, 'transform': True }, 
+
+        'MiniBatchSparsePCA': {}, # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchSparsePCA.html#sklearn.decomposition.MiniBatchSparsePCA
+        'SparsePCA': {}, # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.SparsePCA.html#sklearn.decomposition.SparsePCA
+        'DictionaryLearning': {}, # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.DictionaryLearning.html#sklearn.decomposition.DictionaryLearning
+        'MiniBatchDictionaryLearning': {}, # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchDictionaryLearning.html#sklearn.decomposition.MiniBatchDictionaryLearning
+        'FactorAnalysis': {}, # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.FactorAnalysis.html#sklearn.decomposition.FactorAnalysis
+        'NMF': {} # http://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html#sklearn.decomposition.NMF
+        }
+
+    params =  ast.literal_eval(AlgoConfig) ##
+    Model = DimensionTransformModels_dict[AlgoToUse]['Model']
+    Model.set_params(**params)
+    ModSpecDataPrep = DimensionTransformModels_dict[AlgoToUse]['DataTypeBoundation']
+    print('Transforming Dimensions Using :', AlgoToUse)
+    ## Training Model
+    if(df is not None):
+        print('Developing Model :: On provided Data')
+        if(DimensionTransformModels_dict[AlgoToUse]['fit_transform'] == True):
+            tempDF = pd.DataFrame(Model.fit_transform(df.loc[:, :]))
+            tempDF.rename(columns=dict(zip(tempDF.columns, AlgoToUse + '_var_' + tempDF.columns.astype('str'))), inplace=True)
+            # df_transf = df_transf.join(tempDF, rsuffix='_y')
+            # Trainset_transformed.columns = Trainset_transformed.columns.astype(str)  # Column name being numeric
+        elif((DimensionTransformModels_dict[AlgoToUse]['fit'] == True) & (DimensionTransformModels_dict[AlgoToUse]['transform'] == True)):
+            Model.fit(df.loc[:, :])
+            tempDF = pd.DataFrame(Model.transform(df.loc[:, :]))
+            tempDF.rename(columns=dict(zip(tempDF.columns, AlgoToUse + '_var_' + tempDF.columns.astype('str'))), inplace=True)
+            # df_transf = df_transf.join(tempDF, rsuffix='_y')
+        else:
+            print('Some Error is present')
+    return tempDF, Model
+
+
+def VisualizeClusters(PlotDF, DimRedAlgo, ClusterAlgo, ax={'ax1': 0,'ax2': 1,'ax3': 2}, extra_color=False):
+    # Plotting Static 3D Plot using the first three variables only
+    ax1 = ax['ax1']  ## First axis to take   Data.iloc[:,2]
+    ax2 = ax['ax2']  ## Second axis to take
+    ax3 = ax['ax3']  ## Third axis to take
+    
+    IndextoStart = 0 
+    
+    fig = plt.figure(figsize=(20, 10))
+    ax = fig.gca()
+    
+    Cluster = PlotDF.filter(like='Predict').iloc[:, 0].fillna(-999).astype(object)  ### converting to int so that if cluster_Predict result is in float
+    # centers = kmeans.cluster_centers_[:,0:3
+    try:
+        if ClusterAlgo == 'MeanShift':
+            extra_color = 'True'
+        if extra_color in ['True', 'true', 'T', 't', 'Yes', 'yes', 'Y', 'y']:
+            colors_list = list(colors._colors_full_map.values())
+            color = colors_list
+        else:
+            color = [
+             'b', 'y', 'm', 'r', 'g', 'c', 'aqua', 'sienna', 'lime', 'steelblue', 'hotpink', 'gold',
+             'yellow1', 'wheat1', 'violetred1', 'turquoise1', 'tomato1',
+             'thistle1', 'tan1', 'steelblue1', 'springgreen1', 'snow3', 'slategray2', 'slateblue2',
+             'skyblue2', 'sienna1', 'sgilightblue', 'sgilightgray', 'sgiolivedrab', 'sgisalmon',
+             'sgislateblue', 'sgiteal', 'sgigray32', 'sgibeet', 'seagreen2', 'salmon2', 'royalblue2',
+             'rosybrown2', 'red1', 'raspberry', 'purple2', 'plum1', 'peachpuff1', 'palevioletred1',
+             'paleturquoise2', 'palegreen1', 'orchid1', 'orangered1', 'orange1', 'olivedrab1', 'olive',
+             'navajowhite1', 'mediumvioletred', 'mediumpurple1', 'maroon2', 'limegreen', 'lightsalmon4',
+             'lightpink1', 'lightcoral', 'indianred1', 'green1', 'gold2', 'firebrick1', 'dodgerblue2',
+             'deeppink1', 'deepskyblue1', 'darkseagreen1', 'darkorange1', 'darkolivegreen1', 'darkgreen',
+             'darkgoldenrod2', 'crimson', 'chartreuse2', 'cadmiumorange', 'burntumber', 'brown2', 'blue2',
+             'antiquewhite4', 'aquamarine4', 'banana', 'bisque4', 'k']
+
+        print(PlotDF.filter(like = 'Predict').columns)
+        plt.subplot(243)
+        for clust in np.sort(Cluster.unique()).tolist():
+            ys = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax2]].values
+            zs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax3]].values
+            plt.scatter(ys, zs, c=color[np.sort(Cluster.unique()).tolist().index(clust)], marker='o', alpha=0.5)
+        plt.grid(True, color='black', alpha=0.2)
+        plt.title('YZ plane', fontsize=15)
+        plt.xlabel('Y')
+        plt.ylabel('Z')
+
+        plt.subplot(244)
+        for clust in np.sort(Cluster.unique()).tolist():
+            xs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax1]].values
+            zs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax3]].values
+            plt.scatter(xs, zs, c=color[np.sort(Cluster.unique()).tolist().index(clust)], marker='o', alpha=0.5)
+        plt.grid(True, color='black', alpha=0.2)
+        plt.title('XZ plane', fontsize=15)
+        plt.xlabel('X')
+        plt.ylabel('Z')
+
+        plt.subplot(248)
+        for clust in np.sort(Cluster.unique()).tolist():
+            xs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax1]].values
+            ys = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax2]].values
+            plt.scatter(xs, ys, c=color[np.sort(Cluster.unique()).tolist().index(clust)], marker='o', alpha=0.5)
+        plt.grid(True, color='black', alpha=0.2)
+        plt.title('XY plane', fontsize=15)
+        plt.xlabel('X')
+        plt.ylabel('Y')
+
+        ax = fig.add_subplot(121, projection='3d')
+        for clust in np.sort(Cluster.unique()).tolist():
+            xs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax1]].values
+            ys = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax2]].values
+            zs = PlotDF[PlotDF.filter(like='Predict').iloc[:, 0] == clust].loc[:, PlotDF.columns[IndextoStart + ax3]].values
+            ax.scatter(xs, ys, zs, zdir='z', c=color[np.sort(Cluster.unique()).tolist().index(clust)], alpha=0.7, marker='o', label='Cluster_' + str(clust))
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        plt.title(('Visualization of Cluster on three dimensions,\n Developed by {model}.').format(model=DimRedAlgo + ClusterAlgo), fontsize=15)
+        plt.legend(loc='lower right', frameon=True)
+        plt.grid(True, color='black', alpha=0.2)
+
+        plt.subplot(247)
+        sns.countplot(x=Cluster, alpha=0.5)
+        plt.title('Observations Count in each Clust')
+        plt.tight_layout()
+        plt.show()
+
+
+        PlotDF_col = PlotDF.filter(like='Predict').iloc[:, 0].fillna(-999).astype(object).reset_index()
+        ClustModelName = PlotDF.filter(like='Predict').columns[0] + 'ed Cluster Name'
+        PlotDF_col.columns = ['# of Observations', ClustModelName]
+        PlotDF_col = PlotDF_col.groupby(ClustModelName).aggregate('count').reset_index()
+        PlotDF_col = PlotDF_col.set_index(PlotDF_col.index).T
+
+        fig = plt.figure(figsize=(20, 2), dpi=150)# no visible frame
+        ax = plt.subplot(111, frame_on=False)
+        ax.xaxis.set_visible(False) # hide the x axis
+        ax.yaxis.set_visible(False)
+        table(ax, PlotDF_col, loc='center')
+        plt.show()
+    
+    except Exception as e:
+        print('Error :', str(e))
+        print('Error in Plotting Graph. Total No. of Clusters that are present :', len(Cluster.unique()))
+    
+
+def ClusterDevelopment(ClustAlgo, ClustAlgo_ParamConfig, DF):
+    df = DF.copy()
+    ClustAlgo_params = ast.literal_eval(ClustAlgo_ParamConfig)
+    
+    ### Defining Models and their property
+    ClusteringModels_dict = {
+        'KMeans': {'ModelType': 'ClusterModelData', 'Model': KMeans(), 'DataTypeBoundation': 'Nil', 
+                            'fit': True, 'fit_predict': True, 'predict': True, 'DecisionFunction': False}, 
+        'MiniBatchKMeans': {'ModelType': 'ClusterModelData', 'Model': MiniBatchKMeans(), 'DataTypeBoundation': 'Nil', 
+                             'fit': True, 'fit_predict': True, 'predict': True, 'DecisionFunction': False}, 
+        'AffinityPropagation': {'ModelType': 'ClusterModelData', 'Model': AffinityPropagation(), 'DataTypeBoundation': 'Nil', 
+                               'fit': True, 'fit_predict': True, 'predict': True, 'DecisionFunction': False}, 
+        'MeanShift': {'ModelType': 'ClusterModelData', 'Model': MeanShift(), 'DataTypeBoundation': 'Nil', 
+                        'fit': True, 'fit_predict': True, 'predict': True, 'DecisionFunction': False},
+        'Birch': {'ModelType': 'ClusterModelData', 'Model': Birch(), 'DataTypeBoundation': 'Nil', 
+                            'fit': True, 'fit_predict': True, 'predict': True, 'DecisionFunction': False}, 
+        'SpectralClustering': {'ModelType': 'ClusterModelData', 'Model': SpectralClustering(), 'DataTypeBoundation': 'Nil', 
+                             'fit': True, 'fit_predict': True, 'predict': False, 'DecisionFunction': False}, 
+        'AgglomerativeClustering': {'ModelType': 'ClusterModelData', 'Model': AgglomerativeClustering(), 'DataTypeBoundation': 'Nil', 
+                               'fit': True, 'fit_predict': True, 'predict': False, 'DecisionFunction': False}, 
+        'DBSCAN': {'ModelType': 'ClusterModelData', 'Model': DBSCAN(), 'DataTypeBoundation': 'Nil', 
+                        'fit': True, 'fit_predict': True, 'predict': False, 'DecisionFunction': False},
+    }
+
+    Model = ClusteringModels_dict[ClustAlgo]['Model']
+    Model.set_params(**ClustAlgo_params)
+    ModelSpecificDataPreparation = ClusteringModels_dict[ClustAlgo]['DataTypeBoundation']
+    ModelType = ClusteringModels_dict[ClustAlgo]['ModelType']
+
+
+    ## Training Model
+    if(df is not None):
+        print('Developing Model :: On provided Data')
+        if(ClusteringModels_dict[ClustAlgo]['fit_predict'] == True):
+            df[ClustAlgo + '_Predict'] = pd.DataFrame( Model.fit_predict(df) )  
+        elif((ClusteringModels_dict[ClustAlgo]['fit'] == True) & (ClusteringModels_dict[ClustAlgo]['predict'] == True)):
+            Model.fit(df) 
+            df[ClustAlgo + '_Predict'] = pd.DataFrame(Model.predict(df)) 
+        else:
+            print('Some Error is present')
+    return df
+
+
+def CustomEntropy(labels_true, labels_pred, roundOffTo = 5):
+    '''
+    formula provided in unknown unknown paper is used
+    log to the base 2 is used 
+    labels_true need to be in binary format for this i.e. 0 = human and 1 = bot
+    '''
+    lab_true = [ int(i) for i in labels_true ]
+    lab_pred = labels_pred#.copy() #[ int(i) for i in labels_pred ] 
+
+    partitions = pd.Series(lab_pred).unique()  ##by algorithms
+
+    Total_CriticalClass = sum(lab_true)
+
+    entropy = 0
+    for p in partitions:
+        CriticalClassInThisPartition = sum([ lab_true[ind] for ind in range(len(lab_pred)) if lab_pred[ind] == p ])
+        temp = CriticalClassInThisPartition/Total_CriticalClass
+        #print('printing temp from Entropy:', temp)
+        if(temp != 0):
+            entropy -= temp * math.log2(temp)  ## lim x-->0 x*logx = 0
+    
+    return round(entropy, roundOffTo)
+
+def ComputingClusterEvalMetric(X, labels_true, labels_pred):
+    
+    RoundOffTo = 5
+    
+    ## Calculating Adjusted Rand index  # consensus measure
+    try:
+        ES = CustomEntropy(labels_true, labels_pred, RoundOffTo)
+    except Exception as e: 
+        print('CustomEntropy Error: ', e)
+        ES = None
+    
+    ## Calculating Adjusted Rand index  # consensus measure
+    try:
+        ARI =  round(metrics.adjusted_rand_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Adjusted Rand index Error: ', e)
+        ARI = None
+
+    ## Calculating Adjusted Mutual Information Based Scores  # consensus measure
+    try:
+        AMIS = round(metrics.adjusted_mutual_info_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Adjusted Mutual Information Based Scores Error: ', e)
+        AMIS = None
+    try:
+        NMIS = round(metrics.normalized_mutual_info_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Normalized Mutual Information Based Scores Error: ', e)
+        NMIS = None
+
+    ## Calculating Homogenity, Completeness and V-measure
+    try:
+        HS = round(metrics.homogeneity_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Homogenity Error: ', e)
+        HS = None
+    try:
+        CS = round(metrics.completeness_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Completeness Error: ', e)
+        CS = None
+    try:
+        VMS = round(metrics.v_measure_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('V-Measure Error: ', e)
+        VMS = None
+    #HS_CS_VMS = metrics.homogeneity_completeness_v_measure(labels_true, labels_pred)
+
+    ## Calculating Fowlkes-Mallows Scores
+    try:
+        FMS = round(metrics.fowlkes_mallows_score(labels_true, labels_pred), RoundOffTo)
+    except Exception as e: 
+        print('Fowlkes-Mallows Scores Error: ', e)
+        FMS = None
+
+    if(X is not None):
+        ## Calculating Silhouette Coefficient
+        try:
+            SCS = round(metrics.silhouette_score(X, labels_pred, metric='euclidean', sample_size= 25000), RoundOffTo)
+            #print("printing Temp Silhouette Coefficient: ", SCS)
+            #print(type(SCS))
+        except Exception as e: 
+            print('Silhouette Coefficient Error: ', e)
+            SCS = None
+
+        ## Calculating Calinski-Harabaz Index 
+        try:
+            CHI = round(metrics.calinski_harabaz_score(X, labels_pred), RoundOffTo)
+        except Exception as e: 
+            print('Calinski-Harabaz Index Error: ', e)  ## there is no error is Anomaly algorithm was there
+            CHI = None
+    else:
+        SCS = None
+        CHI = None
+
+    ClusterEvaluationScore = {
+        'Timestamp': time.strftime('%y/%m/%d %Hhr:%Mmin(%Z)', time.gmtime()), 
+        'Algorithm': '---', 
+        'NoOfCluster': len(pd.Series(labels_pred).unique()), 
+         ## Below Metric Do require True Label
+        'Cust_EntropyScore': ES,
+        'AdjustedRandIndex': ARI, 
+        'AdjustedMutualInfoScore': AMIS, 
+        'NormalizedMutualInfoScore': NMIS, 
+        'HomogenityScore': HS, 
+        'CompletenessScore': CS, 
+        'V-measureScore': VMS, 
+        'FowlkesMallowsScore': FMS, 
+        ## Below Metric Doesn't Require True Label
+        'SilhouetteCoefficient': SCS, 
+        'CalinskiHarabazScore': CHI, 
+        }
+    return ClusterEvaluationScore
 
 
 # -------------------------------------------------<< Visualization Related >>------------------------------------------ #
