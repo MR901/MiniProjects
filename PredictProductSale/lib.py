@@ -4,7 +4,7 @@ from sklearn.metrics import roc_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-import ast
+import ast, time
 import math
 from sklearn import metrics
 from sklearn.cluster import KMeans, MiniBatchKMeans, AffinityPropagation, MeanShift, Birch
